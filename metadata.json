@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Audio Transcriber Comparison",
+  "description": "Compare audio transcription results between Gemini 2.5 Flash and Gemini 3 Flash Preview with precise timestamps.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
