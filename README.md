@@ -1,3 +1,4 @@
+
 # Gemini Dual-Engine Audio Transcriber
 
 An advanced, responsive web application for high-precision audio transcription, translation, and comparative analysis using Google's Gemini models.
@@ -7,12 +8,13 @@ An advanced, responsive web application for high-precision audio transcription, 
 ## 🚀 Features
 
 - **Dual-Model Comparison**: Transcribe audio simultaneously using `gemini-2.5-flash` and `gemini-3-flash-preview` to compare accuracy and temporal precision.
+- **Microphone Recording**: Capture audio directly from your microphone for instant transcription.
 - **Precise Timestamps**: Native support for `HH:MM:SS.mmm` format, ensuring synchronization with audio playback.
 - **Interactive Transcript**: Click any segment to instantly seek the audio player to that specific moment.
 - **Auto-Scroll**: The transcript automatically follows the audio playhead, highlighting the current active segment.
 - **Multi-Language Translation**: Translate generated transcripts into over 100 supported languages with a single click.
 - **Text-to-Speech (TTS)**: Listen to translated segments using high-quality neural voices.
-- **Flexible Input**: Upload local audio files or load them directly via URL (CORS permitting).
+- **Flexible Input**: Upload local audio files, load via URL, or record directly.
 - **Pro Exports**: Export your transcripts in professional formats:
   - **SRT**: Standard SubRip format for video subtitles.
   - **LRC**: Lyric file format with precise timing.
@@ -31,7 +33,7 @@ An advanced, responsive web application for high-precision audio transcription, 
 
 ## 📖 How to Use
 
-1. **Load Audio**: Use the "Upload" button for local files or paste a direct audio link in the URL box and click "Load".
+1. **Load Audio**: Use the "Upload" button for local files, paste a link in the URL box, or click "Record" to capture your voice.
 2. **Transcribe**: Click the "Transcribe" button. The dual panes will populate as the Gemini models process the audio.
 3. **Navigate**: Use the built-in audio player. The transcript will highlight segments in real-time. Click any text to jump the audio to that part.
 4. **Translate & Listen**: Select a target language and hit "Translate". Once finished, click the speaker icon on translated segments to hear them.
