@@ -1,20 +1,47 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Gemini Dual-Engine Audio Transcriber
 
-# Run and deploy your AI Studio app
+An advanced, responsive web application for high-precision audio transcription, translation, and comparative analysis using Google's Gemini models.
 
-This contains everything you need to run your app locally.
+![App Screenshot](screenshot.jpg)
 
-View your app in AI Studio: https://ai.studio/apps/drive/1IQUhhLIAJ_dYYbcOLni-x8LLk7Py4SSX
+## 🚀 Features
 
-## Run Locally
+- **Dual-Model Comparison**: Transcribe audio simultaneously using `gemini-2.5-flash` and `gemini-3-flash-preview` to compare accuracy and temporal precision.
+- **Precise Timestamps**: Native support for `HH:MM:SS.mmm` format, ensuring synchronization with audio playback.
+- **Interactive Transcript**: Click any segment to instantly seek the audio player to that specific moment.
+- **Auto-Scroll**: The transcript automatically follows the audio playhead, highlighting the current active segment.
+- **Multi-Language Translation**: Translate generated transcripts into over 100 supported languages with a single click.
+- **Text-to-Speech (TTS)**: Listen to translated segments using high-quality neural voices.
+- **Flexible Input**: Upload local audio files or load them directly via URL (CORS permitting).
+- **Pro Exports**: Export your transcripts in professional formats:
+  - **SRT**: Standard SubRip format for video subtitles.
+  - **LRC**: Lyric file format with precise timing.
+  - **TXT**: Clean, readable text logs.
+  - **JSON**: Structured data for developers.
 
-**Prerequisites:**  Node.js
+## 🛠 Technology Stack
 
+- **Frontend**: React 19, TypeScript
+- **Styling**: Tailwind CSS
+- **AI Models**: 
+  - `gemini-3-flash-preview` (Reasoning & Transcription)
+  - `gemini-2.5-flash` (Transcription)
+  - `gemini-2.5-flash-preview-tts` (Speech Generation)
+- **APIs**: Google GenAI SDK (@google/genai)
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 📖 How to Use
+
+1. **Load Audio**: Use the "Upload" button for local files or paste a direct audio link in the URL box and click "Load".
+2. **Transcribe**: Click the "Transcribe" button. The dual panes will populate as the Gemini models process the audio.
+3. **Navigate**: Use the built-in audio player. The transcript will highlight segments in real-time. Click any text to jump the audio to that part.
+4. **Translate & Listen**: Select a target language and hit "Translate". Once finished, click the speaker icon on translated segments to hear them.
+5. **Download**: Use the format buttons (Orig/Tran) at the top of each pane to save your work.
+
+## 📝 Notes
+
+- **API Key**: This app requires a valid Google Gemini API key configured in the environment.
+- **Precision**: Gemini 3 models generally provide superior temporal alignment for fast-paced speech.
+- **Mobile Friendly**: The interface is fully responsive, supporting both desktop and mobile browsers.
+
+---
+*Created by a Senior Frontend Engineer with ❤️ and Gemini.*
