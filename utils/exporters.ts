@@ -48,8 +48,7 @@ export const downloadFile = (content: string, filename: string) => {
 
 export const exportAsTXT = (segments: TranscriptionSegment[], type: 'original' | 'translated'): string => {
   return segments.map(s => {
-    const text = type === 'translated' ? (s.translatedText || '') : s.text;
-    return `[${s.startTime}] ${text}`;
+    return type === 'translated' ? (s.translatedText || '') : s.text;
   }).join('\n\n');
 };
 
