@@ -153,6 +153,19 @@ export async function transcribeAudio(
 
     const precisionInstruction = "ANALISIS gelombang suara secara mendetail. JANGAN MEMBULATKAN waktu. Gunakan presisi milidetik (mmm) secara eksplisit. Format WAJIB: HH:MM:SS.mmm.";
 
+    // New detailed instruction for segmentation to fix grouping/missing repetition issues
+    const segmentationInstruction = `
+    ATURAN SEGMENTASI & KELENGKAPAN (CRITICAL):
+    1. SEGMENTASI GRANULAR: Pecah teks menjadi potongan-potongan kecil (per kalimat atau per frasa napas). JANGAN menggabungkan banyak kalimat dalam satu timestamp. Idealnya satu segmen < 7 detik.
+    2. VERBATIM TOTAL (NO DEDUPLICATION): Transkripsikan setiap kata PERSIS seperti yang diucapkan.
+    3. PENANGANAN PENGULANGAN & LIRIK:
+       - JANGAN PERNAH MENGHILANGKAN PENGULANGAN. Jika penyanyi menyanyikan baris yang sama 3 kali, BUAT 3 SEGMEN TERPISAH dengan teks yang sama.
+       - JANGAN melakukan 'deduplication' atau menyimpulkan teks.
+       - Contoh: Jika liriknya "Baby, baby, baby", JANGAN tulis "Baby [x3]" atau hanya satu "Baby". Tulis lengkap: "Baby, baby, baby".
+       - Jika ini adalah LAGU: Pastikan Refrain/Chorus ditulis lengkap SETIAP KALI muncul.
+    4. NO GAPS: Pastikan tidak ada durasi audio yang terlewat tanpa transkripsi.
+    `;
+
     const requestConfig: any = {
       responseMimeType: "application/json",
       responseSchema: TRANSCRIPTION_SCHEMA,
@@ -183,9 +196,12 @@ export async function transcribeAudio(
                 },
               },
               {
-                text: `Transkripsikan audio ini. 
+                text: `Transkripsikan audio ini secara lengkap (VERBATIM).
+                Ini mungkin berisi nyanyian/lirik yang berulang.
+                 
                 ${precisionInstruction}
                 ${syncInstruction}
+                ${segmentationInstruction}
                 
                 Format JSON: {"segments": [{"startTime": "HH:MM:SS.mmm", "endTime": "HH:MM:SS.mmm", "text": "..."}]}
                 Pastikan konsistensi format waktu agar UI tidak melompat.`,
