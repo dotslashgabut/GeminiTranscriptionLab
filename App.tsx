@@ -46,6 +46,35 @@ export const parseTimestamp = (timestamp: string | number): number => {
   return parseFloat(str) || 0;
 };
 
+/**
+ * Ensures the correct MIME type is sent to Gemini based on file extension.
+ * Browsers sometimes default to 'audio/mpeg' or 'application/octet-stream' for formats like FLAC.
+ */
+const getCorrectMimeType = (filename: string, originalType: string): string => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  
+  // Explicit overrides for Gemini-compatible formats
+  switch (ext) {
+    case 'mp3': return 'audio/mp3';
+    case 'wav': return 'audio/wav';
+    case 'flac': return 'audio/flac';
+    case 'aac': return 'audio/aac';
+    case 'ogg': case 'oga': return 'audio/ogg';
+    case 'm4a': return 'audio/mp4';
+    case 'aiff': case 'aif': return 'audio/aiff';
+    case 'webm': return 'audio/webm';
+    case 'opus': return 'audio/ogg';
+  }
+  
+  // Fallback to detected type if it seems valid (audio/*)
+  if (originalType && (originalType.startsWith('audio/') || originalType.startsWith('video/'))) {
+    return originalType;
+  }
+  
+  // Final fallback
+  return 'audio/mp3';
+};
+
 const App: React.FC = () => {
   const [audioFile, setAudioFile] = useState<AudioFileData | null>(null);
   const [urlInput, setUrlInput] = useState("");
@@ -78,6 +107,9 @@ const App: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<number | null>(null);
 
+  // Abort Controllers for Cancellation
+  const abortControllersRef = useRef<{ [key in 'left' | 'right']: AbortController | null }>({ left: null, right: null });
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
@@ -102,9 +134,12 @@ const App: React.FC = () => {
       const reader = new FileReader();
       reader.onload = (e) => {
         const base64 = (e.target?.result as string).split(',')[1];
+        // Ensure correct MIME type for formats like FLAC/M4A
+        const mimeType = getCorrectMimeType(file.name, file.type);
+        
         setAudioFile({
           base64,
-          mimeType: file.type,
+          mimeType,
           fileName: file.name,
           previewUrl: URL.createObjectURL(file),
         });
@@ -126,10 +161,13 @@ const App: React.FC = () => {
       
       reader.onloadend = () => {
         const base64 = (reader.result as string).split(',')[1];
+        const fileName = urlInput.split('/').pop()?.split('?')[0] || 'remote-audio';
+        const mimeType = getCorrectMimeType(fileName, blob.type);
+
         setAudioFile({
           base64,
-          mimeType: blob.type || 'audio/mpeg',
-          fileName: urlInput.split('/').pop()?.split('?')[0] || 'remote-audio',
+          mimeType,
+          fileName,
           previewUrl: URL.createObjectURL(blob),
         });
         setCurrentTime(0);
@@ -271,14 +309,40 @@ const App: React.FC = () => {
       right: { ...results.right, loading: true, segments: [], error: undefined },
     });
     const runTranscription = async (side: 'left' | 'right') => {
+      // Create new abort controller
+      if (abortControllersRef.current[side]) {
+        abortControllersRef.current[side]?.abort();
+      }
+      const controller = new AbortController();
+      abortControllersRef.current[side] = controller;
+
       try {
-        const segments = await transcribeAudio(results[side].modelName, audioFile.base64, audioFile.mimeType);
+        const segments = await transcribeAudio(
+          results[side].modelName, 
+          audioFile.base64, 
+          audioFile.mimeType,
+          controller.signal
+        );
         setResults(prev => ({ ...prev, [side]: { ...prev[side], segments, loading: false } }));
       } catch (err: any) {
-        setResults(prev => ({ ...prev, [side]: { ...prev[side], error: err.message, loading: false } }));
+        if (err.name === 'AbortError') {
+          setResults(prev => ({ ...prev, [side]: { ...prev[side], loading: false, error: 'Canceled by user' } }));
+        } else {
+          setResults(prev => ({ ...prev, [side]: { ...prev[side], error: err.message, loading: false } }));
+        }
+      } finally {
+        abortControllersRef.current[side] = null;
       }
     };
     await Promise.all([runTranscription('left'), runTranscription('right')]);
+  };
+
+  const stopTranscription = (side: 'left' | 'right') => {
+    const controller = abortControllersRef.current[side];
+    if (controller) {
+      controller.abort();
+      abortControllersRef.current[side] = null;
+    }
   };
 
   const handleTranslate = async () => {
@@ -342,7 +406,7 @@ const App: React.FC = () => {
                   type="text" 
                   value={urlInput}
                   onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="Paste audio URL..."
+                  placeholder="Paste URL (mp3, wav, flac...)"
                   disabled={isRecording}
                   className="bg-transparent text-xs md:text-sm px-2 md:px-3 py-1 outline-none flex-1 w-full text-slate-700 disabled:opacity-50"
                 />
@@ -356,7 +420,13 @@ const App: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <input type="file" accept="audio/*" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
+                <input 
+                  type="file" 
+                  accept="audio/*,.mp3,.wav,.aac,.ogg,.flac,.m4a,.aiff,.webm" 
+                  className="hidden" 
+                  ref={fileInputRef} 
+                  onChange={handleFileUpload} 
+                />
                 <button 
                   onClick={() => fileInputRef.current?.click()} 
                   disabled={isRecording}
@@ -438,6 +508,7 @@ const App: React.FC = () => {
             const isLoading = results[side].loading;
             const isTranslatingLocal = results[side].translating;
             const hasTranslated = results[side].segments.some(s => s.translatedText);
+            const error = results[side].error;
 
             return (
               <div key={side} className="flex flex-col h-full min-h-0 bg-white">
@@ -493,6 +564,13 @@ const App: React.FC = () => {
                     <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-8">
                       <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                       <p className="mt-4 text-[10px] md:text-xs font-black text-slate-700 tracking-widest animate-pulse uppercase">Transcribing...</p>
+                      <button 
+                        onClick={() => stopTranscription(side)}
+                        className="mt-4 px-4 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-bold rounded-full shadow-sm hover:bg-red-50 hover:border-red-300 transition-all uppercase tracking-wide flex items-center gap-2"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        Stop
+                      </button>
                     </div>
                   ) : results[side].segments.length > 0 ? (
                     <div className="space-y-0.5">
@@ -505,6 +583,13 @@ const App: React.FC = () => {
                           onSelect={(ts) => handleSegmentClick(ts, side)}
                         />
                       ))}
+                    </div>
+                  ) : error ? (
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400">
+                      <div className="bg-red-50 p-3 rounded-full mb-3">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                      </div>
+                      <p className="text-xs font-bold text-red-600">{error}</p>
                     </div>
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center p-8 text-center opacity-25">

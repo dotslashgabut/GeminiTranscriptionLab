@@ -75,10 +75,73 @@ function normalizeTimestamp(ts: string): string {
   return `${fHH}:${fMM}:${fSS}.${fMMM}`;
 }
 
+/**
+ * Attempts to repair truncated JSON strings commonly returned by LLMs when hitting token limits.
+ * Assumes the structure is {"segments": [...]}
+ */
+function tryRepairJson(jsonString: string): any {
+  try {
+    return JSON.parse(jsonString);
+  } catch (e) {
+    // If it fails, try to repair
+  }
+
+  const trimmed = jsonString.trim();
+  
+  // 1. If it ends with a comma inside the array, remove it and close
+  // 2. If it ends inside a string or object, find the last complete object close '}', cut, and close array.
+  
+  // Find the last occurrence of "}," which signifies the end of a segment object in the array
+  // OR just "}" if it's the last one before truncation
+  const lastObjectEnd = trimmed.lastIndexOf('}');
+  
+  if (lastObjectEnd === -1) {
+    throw new Error("Response too short or malformed to repair.");
+  }
+
+  // Check if we are potentially inside the root object closing
+  // The schema is { segments: [ ... ] }
+  // So we expect the last valid char to be '}' of a segment, then maybe ']' then '}'
+  
+  // We will construct a string up to the last '}', close the array and root object.
+  const repaired = trimmed.substring(0, lastObjectEnd + 1) + "]}";
+  
+  try {
+    const parsed = JSON.parse(repaired);
+    if (parsed.segments && Array.isArray(parsed.segments)) {
+      return parsed;
+    }
+  } catch (e) {
+    // Second attempt: Maybe the last '}' was the closing of the "segments" array or root object?
+    // Unlikely if it was truncated inside a string as the error suggests.
+    // Let's try to match all complete objects using Regex as a fallback for severe truncation.
+    const segments = [];
+    // Regex to match {"startTime": "...", "endTime": "...", "text": "..."}
+    // We make it lenient on whitespace
+    const segmentRegex = /\{\s*"startTime"\s*:\s*"([^"]+)"\s*,\s*"endTime"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g;
+    
+    let match;
+    while ((match = segmentRegex.exec(trimmed)) !== null) {
+      segments.push({
+        startTime: match[1],
+        endTime: match[2],
+        text: match[3]
+      });
+    }
+    
+    if (segments.length > 0) {
+      return { segments };
+    }
+    
+    throw e; // Rethrow original or new error if repair failed
+  }
+}
+
 export async function transcribeAudio(
   modelName: string,
   audioBase64: string,
-  mimeType: string
+  mimeType: string,
+  signal?: AbortSignal
 ): Promise<TranscriptionSegment[]> {
   try {
     const isGemini3 = modelName.includes('gemini-3');
@@ -90,39 +153,63 @@ export async function transcribeAudio(
 
     const precisionInstruction = "ANALISIS gelombang suara secara mendetail. JANGAN MEMBULATKAN waktu. Gunakan presisi milidetik (mmm) secara eksplisit. Format WAJIB: HH:MM:SS.mmm.";
 
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          parts: [
-            {
-              inlineData: {
-                data: audioBase64,
-                mimeType: mimeType,
-              },
-            },
-            {
-              text: `Transkripsikan audio ini. 
-              ${precisionInstruction}
-              ${syncInstruction}
-              
-              Format JSON: {"segments": [{"startTime": "HH:MM:SS.mmm", "endTime": "HH:MM:SS.mmm", "text": "..."}]}
-              Pastikan konsistensi format waktu agar UI tidak melompat.`,
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: TRANSCRIPTION_SCHEMA,
-        temperature: 0.1,
-      },
+    const requestConfig: any = {
+      responseMimeType: "application/json",
+      responseSchema: TRANSCRIPTION_SCHEMA,
+      temperature: 0.1,
+    };
+
+    // For Gemini 3, disable thinking to maximize output tokens for the actual transcription content
+    if (isGemini3) {
+      requestConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
+
+    const abortPromise = new Promise<never>((_, reject) => {
+      if (signal?.aborted) reject(new DOMException("Aborted", "AbortError"));
+      signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
     });
 
-    const text = response.text;
+    // Race the API call against the abort signal
+    const response: any = await Promise.race([
+      ai.models.generateContent({
+        model: modelName,
+        contents: [
+          {
+            parts: [
+              {
+                inlineData: {
+                  data: audioBase64,
+                  mimeType: mimeType,
+                },
+              },
+              {
+                text: `Transkripsikan audio ini. 
+                ${precisionInstruction}
+                ${syncInstruction}
+                
+                Format JSON: {"segments": [{"startTime": "HH:MM:SS.mmm", "endTime": "HH:MM:SS.mmm", "text": "..."}]}
+                Pastikan konsistensi format waktu agar UI tidak melompat.`,
+              },
+            ],
+          },
+        ],
+        config: requestConfig,
+      }),
+      abortPromise
+    ]);
+
+    let text = response.text;
     if (!text) throw new Error("Empty response from model");
 
-    const parsed = JSON.parse(text);
+    // Clean up potential markdown formatting
+    text = text.trim();
+    if (text.startsWith('```json')) {
+      text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (text.startsWith('```')) {
+      text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    const parsed = tryRepairJson(text);
     const segments = parsed.segments || [];
 
     return segments.map((s: any) => ({
@@ -131,6 +218,9 @@ export async function transcribeAudio(
       text: String(s.text)
     }));
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw error;
+    }
     console.error(`Error transcribing with ${modelName}:`, error);
     throw new Error(error.message || "Transcription failed");
   }
@@ -177,8 +267,17 @@ export async function translateSegments(
       },
     });
 
-    const text = response.text;
+    let text = response.text;
     if (!text) throw new Error("Empty response from translation model");
+    
+    // Clean markdown for translation as well
+    text = text.trim();
+    if (text.startsWith('```json')) {
+      text = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (text.startsWith('```')) {
+      text = text.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
     const parsed = JSON.parse(text);
     return parsed.segments || [];
   } catch (error: any) {
