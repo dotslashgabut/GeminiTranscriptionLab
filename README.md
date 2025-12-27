@@ -12,12 +12,14 @@ An advanced, responsive web application for high-precision audio transcription, 
 - **Precise Timestamps**: Native support for `HH:MM:SS.mmm` format, ensuring synchronization with audio playback.
 - **Interactive Transcript**: Click any segment to instantly seek the audio player to that specific moment.
 - **Auto-Scroll**: The transcript automatically follows the audio playhead, highlighting the current active segment.
+- **Process Control**: Abort transcription requests instantly with a dedicated **Stop** button for each model.
+- **Lyric & Verbatim Mode**: Advanced prompting logic ensures repeated lines (choruses) and stuttering are transcribed exactly as spoken, preventing AI summarization or deduplication.
 - **Multi-Language Translation**: Translate generated transcripts into over 100 supported languages with a single click.
 - **Text-to-Speech (TTS)**: Listen to translated segments using high-quality neural voices.
 - **Flexible Input**: Upload local audio files, load via URL, or record directly.
 - **Pro Exports**: Export your transcripts in professional formats:
   - **SRT**: Standard SubRip format for video subtitles.
-  - **LRC**: Lyric file format with precise timing.
+  - **LRC**: Lyric file format with precise timing (optimized for karaoke).
   - **TXT**: Clean, readable text logs.
   - **JSON**: Structured data for developers.
 
@@ -34,7 +36,7 @@ An advanced, responsive web application for high-precision audio transcription, 
 ## 📖 How to Use
 
 1. **Load Audio**: Use the "Upload" button for local files, paste a link in the URL box, or click "Record" to capture your voice.
-2. **Transcribe**: Click the "Transcribe" button. The dual panes will populate as the Gemini models process the audio.
+2. **Transcribe**: Click the "Transcribe" button. The dual panes will populate as the Gemini models process the audio. You can stop the process at any time if needed.
 3. **Navigate**: Use the built-in audio player. The transcript will highlight segments in real-time. Click any text to jump the audio to that part.
 4. **Translate & Listen**: Select a target language and hit "Translate". Once finished, click the speaker icon on translated segments to hear them.
 5. **Download**: Use the format buttons (Orig/Tran) at the top of each pane to save your work.
@@ -42,7 +44,7 @@ An advanced, responsive web application for high-precision audio transcription, 
 ## 📝 Notes
 
 - **API Key**: This app requires a valid Google Gemini API key configured in the environment.
-- **Precision**: Gemini 3 models generally provide superior temporal alignment for fast-paced speech.
+- **Precision**: Gemini 3 models generally provide superior temporal alignment for fast-paced speech. The app now includes specific instructions to enforce granular segmentation (< 7s) and prevent text grouping.
 - **Mobile Friendly**: The interface is fully responsive, supporting both desktop and mobile browsers.
 
 ---
