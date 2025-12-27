@@ -14,15 +14,15 @@ const TRANSCRIPTION_SCHEMA = {
         properties: {
           startTime: {
             type: Type.STRING,
-            description: "Start timestamp. MUST use HH:MM:SS.mmm format (e.g. '00:00:01.234').",
+            description: "Absolute timestamp in HH:MM:SS.mmm format (e.g. '00:01:05.300'). Cumulative from start.",
           },
           endTime: {
             type: Type.STRING,
-            description: "End timestamp. MUST use HH:MM:SS.mmm format (e.g. '00:00:04.567').",
+            description: "Absolute timestamp in HH:MM:SS.mmm format.",
           },
           text: {
             type: Type.STRING,
-            description: "Transcribed text.",
+            description: "Transcribed text. Exact words spoken. No hallucinations. Must include every single word.",
           },
         },
         required: ["startTime", "endTime", "text"],
@@ -38,60 +38,65 @@ const TRANSCRIPTION_SCHEMA = {
 function normalizeTimestamp(ts: string): string {
   if (!ts) return "00:00:00.000";
   
-  const raw = ts.trim();
-
-  // Handle raw seconds format (e.g., "123.456")
-  if (/^\d+(\.\d+)?$/.test(raw) && !raw.includes(':')) {
-    const totalSeconds = parseFloat(raw);
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = Math.floor(totalSeconds % 60);
-    const ms = Math.round((totalSeconds % 1) * 1000);
-    
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
-  }
+  let clean = ts.trim().replace(/[^\d:.]/g, '');
   
-  const clean = raw.replace(/[^\d:.]/g, '');
-  const components = clean.split(/[:.]/);
-  
-  let hh = "00", mm = "00", ss = "00", mmm = "000";
-
-  if (components.length >= 4) {
-    [hh, mm, ss, mmm] = components;
-  } else if (components.length === 3) {
-    if (components[2].length === 3) {
-      [mm, ss, mmm] = components;
-    } else {
-      [hh, mm, ss] = components;
+  // Handle if model returns raw seconds (e.g. "65.5") despite instructions
+  if (!clean.includes(':') && /^[\d.]+$/.test(clean)) {
+    const totalSeconds = parseFloat(clean);
+    if (!isNaN(totalSeconds)) {
+       const h = Math.floor(totalSeconds / 3600);
+       const m = Math.floor((totalSeconds % 3600) / 60);
+       const s = Math.floor(totalSeconds % 60);
+       const ms = Math.round((totalSeconds % 1) * 1000);
+       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
     }
-  } else if (components.length === 2) {
-    [mm, ss] = components;
-  } else if (components.length === 1) {
-    ss = components[0];
   }
 
-  return `${hh.padStart(2, '0').substring(0, 2)}:${mm.padStart(2, '0').substring(0, 2)}:${ss.padStart(2, '0').substring(0, 2)}.${mmm.padEnd(3, '0').substring(0, 3)}`;
+  // Handle MM:SS.mmm or HH:MM:SS.mmm
+  const parts = clean.split(':');
+  let h = 0, m = 0, s = 0, ms = 0;
+
+  if (parts.length === 3) {
+    h = parseInt(parts[0], 10) || 0;
+    m = parseInt(parts[1], 10) || 0;
+    const secParts = parts[2].split('.');
+    s = parseInt(secParts[0], 10) || 0;
+    if (secParts[1]) {
+      // Pad or truncate to 3 digits for parsing
+      const msStr = secParts[1].substring(0, 3).padEnd(3, '0');
+      ms = parseInt(msStr, 10);
+    }
+  } else if (parts.length === 2) {
+    m = parseInt(parts[0], 10) || 0;
+    const secParts = parts[1].split('.');
+    s = parseInt(secParts[0], 10) || 0;
+    if (secParts[1]) {
+      const msStr = secParts[1].substring(0, 3).padEnd(3, '0');
+      ms = parseInt(msStr, 10);
+    }
+  } else {
+    // Fallback if parsing fails
+    return "00:00:00.000";
+  }
+
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
 /**
  * Attempts to repair truncated JSON strings.
- * ENHANCED: Now handles single-quoted JSON values or unescaped quotes more robustly
- * to prevent skipping segments when the model outputs "bad" JSON.
  */
 function tryRepairJson(jsonString: string): any {
   const trimmed = jsonString.trim();
 
-  // 1. Try standard parsing first
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed.segments && Array.isArray(parsed.segments)) {
       return parsed;
     }
   } catch (e) {
-    // Continue to repair logic
+    // Continue
   }
 
-  // 2. Try to close truncated JSON
   const lastObjectEnd = trimmed.lastIndexOf('}');
   if (lastObjectEnd !== -1) {
     const repaired = trimmed.substring(0, lastObjectEnd + 1) + "]}";
@@ -101,39 +106,21 @@ function tryRepairJson(jsonString: string): any {
         return parsed;
       }
     } catch (e) {
-      // Continue to regex fallback
+      // Continue
     }
   }
 
-  // 3. Regex Fallback (The "Scraper" approach)
-  // This is crucial for handling cases where quotes are messed up.
-  // It looks for the pattern regardless of surrounding JSON validity.
-  // Supports both "text": "value" AND "text": 'value' (in case model goes rogue)
   const segments = [];
-  
-  // Regex Explanation:
-  // Part 1: startTime key and value (double quotes)
-  // Part 2: endTime key and value (double quotes)
-  // Part 3: text key... AND THEN:
-  //         EITHER match double-quoted string: "((?:[^"\\]|\\.)*)"
-  //         OR match single-quoted string: '((?:[^'\\]|\\.)*)'
-  const segmentRegex = /\{\s*"startTime"\s*:\s*"([^"]+)"\s*,\s*"endTime"\s*:\s*"([^"]+)"\s*,\s*"text"\s*:\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g;
+  // Updated Regex to capture standard HH:MM:SS format better if needed, though mostly relying on structure
+  const segmentRegex = /\{\s*"startTime"\s*:\s*"?([^",]+)"?\s*,\s*"endTime"\s*:\s*"?([^",]+)"?\s*,\s*"text"\s*:\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/g;
   
   let match;
   while ((match = segmentRegex.exec(trimmed)) !== null) {
-    // match[1] = startTime
-    // match[2] = endTime
-    // match[3] = text (if double quoted)
-    // match[4] = text (if single quoted)
     const rawText = match[3] !== undefined ? match[3] : match[4];
-    
-    // We need to unescape manually since we bypassed JSON.parse
     let unescapedText = rawText;
     try {
-      // A quick hack to unescape standard JSON escapes using JSON.parse on a string fragment
       unescapedText = JSON.parse(`"${rawText.replace(/"/g, '\\"')}"`); 
     } catch (e) {
-      // If that fails, just basic replace
       unescapedText = rawText.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, "\\");
     }
 
@@ -162,26 +149,38 @@ export async function transcribeAudio(
     
     const timingPolicy = `
     STRICT TIMING POLICY:
-    1. ANTI-DRIFT: Do NOT predict timestamps based on patterns or rhythm. Use ACTUAL vocal onset for 'startTime'.
-    2. REPETITION HANDLING: If multiple lines start with the same text, DO NOT advance the next timestamp prematurely. Each repetition must wait for the actual audio cue.
-    3. TEMPORAL ISOLATION: The 'endTime' of a segment must be precisely when the vocal stops.
-    4. NO HALLUCINATION: If there is a silence between repetitions, the timestamps must reflect that silence.
+    1. FORMAT: Use **HH:MM:SS.mmm** (e.g. 00:01:05.300).
+    2. ABSOLUTE & CUMULATIVE: Timestamps must be relative to the START of the file.
+    3. MONOTONICITY: Time MUST always move forward. startTime[n] >= endTime[n-1].
+    4. ACCURACY: Sync text exactly to when it is spoken.
     `;
 
     const verbatimPolicy = `
-    VERBATIM & SEGMENTATION:
-    1. GRANULAR SEGMENTS: Create segments shorter than 5 seconds.
-    2. FULL VERBATIM: Transcribe every single word, including "uhs", "umms", and repeated phrases.
-    3. NO DEDUPLICATION: If a phrase repeats 3 times, produce 3 distinct segments.
+    VERBATIM & FIDELITY:
+    1. STRICT VERBATIM: Transcribe EXACTLY what is spoken. Do not paraphrase, summarize, or "correct" grammar.
+    2. REPETITIONS: Include all repetitions (e.g. "I... I... I don't know").
+    3. NO CLEANUP: Do not remove filler words like "um", "ah", "uh".
     `;
 
-    // Added explicit instruction for JSON safety regarding quotes
+    const completenessPolicy = `
+    COMPLETENESS POLICY (CRITICAL):
+    1. EXHAUSTIVE: You must transcribe the ENTIRE audio file from 00:00:00.000 until the end.
+    2. NO SKIPPING: Do not skip any sentences or words, even if they are quiet or fast.
+    3. NO DEDUPLICATION: If a speaker repeats the same sentence, you MUST transcribe it every time it is said.
+    4. SEGMENTATION: Break segments at least every 5-7 seconds. Do NOT create long segments.
+    `;
+
+    const antiHallucinationPolicy = `
+    ANTI-HALLUCINATION:
+    1. NO INVENTED TEXT: Do NOT output text if no speech is present.
+    2. NO GUESSING: If audio is absolutely unintelligible, skip it.
+    3. NO LABELS: Do not add speaker labels (like "Speaker 1:").
+    `;
+
     const jsonSafetyPolicy = `
     JSON FORMATTING SAFETY:
     1. TEXT ESCAPING: The 'text' field MUST be wrapped in DOUBLE QUOTES (").
     2. INTERNAL QUOTES: If the text contains a double quote, ESCAPE IT (e.g. \\"). 
-    3. SINGLE QUOTES: Single quotes (') in the text are allowed but MUST NOT break the JSON structure.
-    4. NO SINGLE QUOTE KEYS: Do NOT use single quotes for JSON keys (e.g. use "startTime", NOT 'startTime').
     `;
 
     const requestConfig: any = {
@@ -191,7 +190,7 @@ export async function transcribeAudio(
     };
 
     if (isGemini3) {
-      requestConfig.thinkingConfig = { thinkingBudget: 4096 };
+      requestConfig.thinkingConfig = { thinkingBudget: 2048 }; 
     }
 
     const abortPromise = new Promise<never>((_, reject) => {
@@ -212,14 +211,16 @@ export async function transcribeAudio(
                 },
               },
               {
-                text: `Perform high-precision audio transcription with millisecond-accurate timestamps.
+                text: `You are a high-fidelity, verbatim audio transcription engine. Your output must be exhaustive and complete.
                 
                 ${timingPolicy}
                 ${verbatimPolicy}
+                ${completenessPolicy}
+                ${antiHallucinationPolicy}
                 ${jsonSafetyPolicy}
                 
                 REQUIRED FORMAT: JSON object with "segments" array. 
-                Use HH:MM:SS.mmm for all timestamps.`,
+                Timestamps MUST be 'HH:MM:SS.mmm'. Do not stop until you have reached the end of the audio.`,
               },
             ],
           },
@@ -266,7 +267,7 @@ export async function translateSegments(
           parts: [
             {
               text: `Translate the following segments into ${targetLanguage}. 
-              CRITICAL: Do NOT modify the timestamps. Keep the exact HH:MM:SS.mmm format.
+              CRITICAL: Do NOT modify the timestamps. Keep the exact format provided.
               Data: ${JSON.stringify(segments)}`,
             },
           ],

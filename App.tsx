@@ -221,12 +221,10 @@ const App: React.FC = () => {
   };
 
   const handleNewSession = () => {
-    // 1. Abort any ongoing processes
     stopTranscription('left');
     stopTranscription('right');
     if (isRecording) stopRecording();
 
-    // 2. Reset Audio State
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -235,7 +233,6 @@ const App: React.FC = () => {
       URL.revokeObjectURL(audioFile.previewUrl);
     }
 
-    // 3. Clear all states
     setAudioFile(null);
     setUrlInput("");
     setCurrentTime(0);
@@ -290,10 +287,16 @@ const App: React.FC = () => {
 
   const startTranscription = async () => {
     if (!audioFile) return;
-    setResults({
-      left: { ...results.left, loading: true, segments: [], error: undefined },
-      right: { ...results.right, loading: true, segments: [], error: undefined },
-    });
+
+    // Stop audio playback when transcription starts
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    setResults(prev => ({
+      left: { ...prev.left, loading: true, segments: [], error: undefined },
+      right: { ...prev.right, loading: true, segments: [], error: undefined },
+    }));
     const runTranscription = async (side: 'left' | 'right') => {
       if (abortControllersRef.current[side]) abortControllersRef.current[side]?.abort();
       const controller = new AbortController();
@@ -557,17 +560,17 @@ const App: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto overflow-x-hidden relative bg-white scrolling-touch p-1 scroll-smooth min-h-0">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden relative bg-white scrolling-touch p-0 min-h-0">
                   {isLoading ? (
-                    <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-8">
-                      <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      <p className="mt-4 text-[10px] md:text-xs font-black text-slate-700 tracking-widest animate-pulse uppercase">Transcribing...</p>
+                    <div className="h-full flex flex-col items-center justify-center p-8">
+                      <div className={`animate-spin rounded-full h-12 w-12 border-4 ${
+                          side === 'left' ? 'border-blue-100 border-t-blue-500' : 'border-indigo-100 border-t-indigo-500'
+                      }`}></div>
                       <button 
                         onClick={() => stopTranscription(side)}
-                        className="mt-4 px-4 py-1.5 bg-white border border-red-200 text-red-600 text-xs font-bold rounded-full shadow-sm hover:bg-red-50 hover:border-red-300 transition-all uppercase tracking-wide flex items-center gap-2"
+                        className="mt-6 px-4 py-1.5 bg-white border border-red-100 text-red-500 text-[10px] font-bold rounded-full hover:bg-red-50 transition-colors uppercase tracking-wide"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        Stop
+                        Stop Generation
                       </button>
                     </div>
                   ) : results[side].segments.length > 0 ? (

@@ -11,7 +11,9 @@ const parseTimestampToSeconds = (ts: string | number): number => {
 
   if (str.includes(':')) {
     const parts = str.split(':').map(p => parseFloat(p) || 0);
+    // HH:MM:SS.mmm
     if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+    // MM:SS.mmm
     if (parts.length === 2) return (parts[0] * 60) + parts[1];
   }
   return parseFloat(str) || 0;
@@ -29,9 +31,11 @@ const formatSecondsToSRT = (totalSeconds: number): string => {
 
 const formatSecondsToLRC = (totalSeconds: number): string => {
   const m = Math.floor(totalSeconds / 60);
-  const s = (totalSeconds % 60).toFixed(2);
-  const [ss, ms] = s.split('.');
-  return `[${m.toString().padStart(2, '0')}:${ss.padStart(2, '0')}.${(ms || '00').substring(0, 2).padEnd(2, '0')}]`;
+  const s = (totalSeconds % 60);
+  const sInt = Math.floor(s);
+  const ms = Math.round((s % 1) * 100); // LRC usually uses 2 digits for ms (hundredths)
+
+  return `[${m.toString().padStart(2, '0')}:${sInt.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}]`;
 };
 
 export const downloadFile = (content: string, filename: string) => {
@@ -63,38 +67,18 @@ export const exportAsSRT = (segments: TranscriptionSegment[], type: 'original' |
 
 export const exportAsLRC = (segments: TranscriptionSegment[], type: 'original' | 'translated', totalDuration?: number): string => {
   const lines: string[] = [];
-  const CLEAR_OFFSET = 4; // Berdasarkan contoh user: 11.72 + 4 = 15.72
-
+  // LRC needs time tag at start of line. Standard is [mm:ss.xx]
+  // We handle simple synchronized lyrics.
+  // Ideally, LRC is one line per timestamp. 
+  
   for (let i = 0; i < segments.length; i++) {
     const s = segments[i];
     const startTime = parseTimestampToSeconds(s.startTime);
-    const endTime = parseTimestampToSeconds(s.endTime);
     const text = type === 'translated' ? (s.translatedText || '') : s.text;
 
-    // Tambahkan baris lirik utama
-    lines.push(`${formatSecondsToLRC(startTime)}${text}`);
-
-    const nextS = segments[i + 1];
-    const clearingTime = endTime + CLEAR_OFFSET;
-
-    if (nextS) {
-      const nextStartTime = parseTimestampToSeconds(nextS.startTime);
-      // Jika ada jeda signifikan sebelum lirik berikutnya mulai, bersihkan layar
-      if (nextStartTime > clearingTime) {
-        lines.push(`${formatSecondsToLRC(clearingTime)}`);
-      }
-    } else {
-      // Logika untuk segmen terakhir
-      if (totalDuration !== undefined) {
-        // Hanya tambah baris kosong jika durasi audio masih cukup
-        if (clearingTime <= totalDuration) {
-          lines.push(`${formatSecondsToLRC(clearingTime)}`);
-        }
-      } else {
-        // Jika durasi tidak diketahui, tambahkan saja untuk keamanan
-        lines.push(`${formatSecondsToLRC(clearingTime)}`);
-      }
-    }
+    // Remove newlines from text for LRC compatibility
+    const cleanText = text.replace(/[\r\n]+/g, ' ');
+    lines.push(`${formatSecondsToLRC(startTime)}${cleanText}`);
   }
   return lines.join('\n');
 };
