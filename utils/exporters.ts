@@ -38,6 +38,19 @@ const formatSecondsToLRC = (totalSeconds: number): string => {
   return `[${m.toString().padStart(2, '0')}:${sInt.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}]`;
 };
 
+const escapeXml = (unsafe: string): string => {
+  return unsafe.replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+};
+
 export const downloadFile = (content: string, filename: string) => {
   const blob = new Blob([content], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
@@ -81,6 +94,35 @@ export const exportAsLRC = (segments: TranscriptionSegment[], type: 'original' |
     lines.push(`${formatSecondsToLRC(startTime)}${cleanText}`);
   }
   return lines.join('\n');
+};
+
+export const exportAsTTML = (segments: TranscriptionSegment[], type: 'original' | 'translated'): string => {
+  const lines = segments.map((s) => {
+    const text = type === 'translated' ? (s.translatedText || '') : s.text;
+    // Ensure HH:MM:SS.mmm format for TTML if not already
+    let start = s.startTime.includes('.') ? s.startTime : `${s.startTime}.000`;
+    let end = s.endTime.includes('.') ? s.endTime : `${s.endTime}.000`;
+    
+    // Basic normalization to ensure HH:MM:SS.mmm if it came in as MM:SS.mmm
+    if (start.length <= 9) start = "00:" + start;
+    if (end.length <= 9) end = "00:" + end;
+
+    return `      <p begin="${start}" end="${end}">${escapeXml(text)}</p>`;
+  }).join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling" xml:lang="en">
+  <head>
+    <styling>
+      <style xml:id="defaultCaption" tts:fontSize="10px" tts:fontFamily="SansSerif" tts:fontWeight="normal" tts:fontStyle="normal" tts:textDecoration="none" tts:color="white" tts:backgroundColor="black" tts:textAlign="center" />
+    </styling>
+  </head>
+  <body>
+    <div style="defaultCaption">
+${lines}
+    </div>
+  </body>
+</tt>`;
 };
 
 export const exportAsJSON = (segments: TranscriptionSegment[], type: 'original' | 'translated'): string => {

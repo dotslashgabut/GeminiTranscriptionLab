@@ -169,7 +169,8 @@ export async function transcribeAudio(
   modelName: string,
   audioBase64: string,
   mimeType: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  granularity: 'line' | 'word' = 'line'
 ): Promise<TranscriptionSegment[]> {
   try {
     const isGemini3 = modelName.includes('gemini-3');
@@ -184,12 +185,22 @@ export async function transcribeAudio(
     `;
 
     const subtitlePolicy = `
-    SUBTITLE & LYRIC OPTIMIZATION:
+    SUBTITLE & LYRIC OPTIMIZATION (LINE MODE):
     1. SEGMENTATION: Break text into short, readable chunks suitable for subtitles (karaoke/lyric style).
     2. MAX DURATION: Prefer segments of 1-5 seconds. Avoid segments longer than 7 seconds unless it's a long sustained note.
     3. PHRASING: Break segments at natural pauses, commas, or musical phrasing boundaries.
     4. LINE LENGTH: Keep segments concise (under 42 characters if possible).
     `;
+
+    const wordLevelPolicy = `
+    WORD-LEVEL GRANULARITY (WORD MODE):
+    1. EXTREME SEGMENTATION: Break segments into individual words or extremely short phrases (max 2-3 words).
+    2. PURPOSE: This is for high-precision karaoke/TTML timing.
+    3. TIMING: startTime and endTime must strictly bound the specific word(s) spoken.
+    4. DENSITY: You will generate many small segments. This is expected.
+    `;
+
+    const segmentationPolicy = granularity === 'word' ? wordLevelPolicy : subtitlePolicy;
 
     const verbatimPolicy = `
     VERBATIM & FIDELITY POLICY (EXTREMELY IMPORTANT):
@@ -251,7 +262,7 @@ export async function transcribeAudio(
                 text: `You are a high-fidelity, verbatim audio transcription engine optimized for **Subtitles and Lyrics**. Your output must be exhaustive, complete, and perfectly timed.
                 
                 ${timingPolicy}
-                ${subtitlePolicy}
+                ${segmentationPolicy}
                 ${verbatimPolicy}
                 ${completenessPolicy}
                 ${antiHallucinationPolicy}

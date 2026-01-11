@@ -75,6 +75,7 @@ const App: React.FC = () => {
   const [targetLang, setTargetLang] = useState("Indonesian");
   const [currentTime, setCurrentTime] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [granularity, setGranularity] = useState<'line' | 'word'>('line');
   
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -306,7 +307,8 @@ const App: React.FC = () => {
           results[side].modelName, 
           audioFile.base64, 
           audioFile.mimeType,
-          controller.signal
+          controller.signal,
+          granularity
         );
         setResults(prev => ({ ...prev, [side]: { ...prev[side], segments, loading: false } }));
       } catch (err: any) {
@@ -361,6 +363,7 @@ const App: React.FC = () => {
       case 'JSON': content = Exporters.exportAsJSON(segments, type); break;
       case 'SRT': content = Exporters.exportAsSRT(segments, type); break;
       case 'LRC': content = Exporters.exportAsLRC(segments, type, totalDuration); break;
+      case 'TTML': content = Exporters.exportAsTTML(segments, type); break;
     }
     Exporters.downloadFile(content, filename);
   };
@@ -439,6 +442,24 @@ const App: React.FC = () => {
                   <span className={`w-2 h-2 rounded-full ${isRecording ? 'bg-red-600 animate-pulse' : 'bg-slate-400'}`}></span>
                   {isRecording ? `Stop` : 'Record'}
                 </button>
+
+                <div className="flex items-center bg-white rounded-xl border border-slate-300 overflow-hidden shadow-sm">
+                  <button 
+                    onClick={() => setGranularity('line')}
+                    className={`px-3 py-2 text-xs font-semibold transition-colors ${granularity === 'line' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
+                    disabled={isTranscribing}
+                  >
+                    Line
+                  </button>
+                  <div className="w-px h-full bg-slate-200"></div>
+                  <button 
+                    onClick={() => setGranularity('word')}
+                    className={`px-3 py-2 text-xs font-semibold transition-colors ${granularity === 'word' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50'}`}
+                    disabled={isTranscribing}
+                  >
+                    Word
+                  </button>
+                </div>
 
                 {canClear && (
                   <button 
@@ -532,7 +553,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col gap-1.5 overflow-hidden">
                       <div className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar">
                         <span className="text-[8px] font-bold text-slate-400 uppercase min-w-[32px]">Orig:</span>
-                        {['TXT', 'SRT', 'LRC', 'JSON'].map(format => (
+                        {['TXT', 'SRT', 'LRC', 'TTML', 'JSON'].map(format => (
                           <button 
                             key={format} 
                             onClick={() => handleDownload(side, format, 'original')} 
@@ -545,7 +566,7 @@ const App: React.FC = () => {
                       {hasTranslated && (
                         <div className="flex items-center gap-2 overflow-x-auto pb-0.5 no-scrollbar">
                           <span className="text-[8px] font-bold text-indigo-400 uppercase min-w-[32px]">Tran:</span>
-                          {['TXT', 'SRT', 'LRC', 'JSON'].map(format => (
+                          {['TXT', 'SRT', 'LRC', 'TTML', 'JSON'].map(format => (
                             <button 
                               key={format} 
                               onClick={() => handleDownload(side, format, 'translated')} 
